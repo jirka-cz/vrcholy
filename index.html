@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Vrcholy na kole</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1c211c;
+    --ink-soft:#2a2f28;
+    --cream:#f2ead9;
+    --cream-dim:#c9c0ab;
+    --monument:#a2402a;
+    --rozhledna:#3d7c86;
+    --done:#6f8f4a;
+    --line: rgba(242,234,217,0.14);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;background:var(--ink);color:var(--cream);font-family:'IBM Plex Sans',sans-serif;overflow:hidden;}
+  #app{display:flex;flex-direction:column;height:100vh;}
+
+  header{padding:14px 16px 10px;border-bottom:1px solid var(--line);flex-shrink:0;}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:22px;margin:0 0 2px;letter-spacing:0.2px;}
+  .subtitle{margin:0 0 10px;font-size:13px;color:var(--cream-dim);}
+  .progress{display:flex;align-items:center;gap:10px;}
+  .progress-bar{flex:1;height:6px;border-radius:3px;background:var(--ink-soft);overflow:hidden;}
+  .progress-fill{height:100%;background:var(--done);width:0%;transition:width .35s ease;}
+  #progressText{font-size:12px;color:var(--cream-dim);white-space:nowrap;font-variant-numeric:tabular-nums;}
+
+  .controls{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;flex-shrink:0;flex-wrap:wrap;}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;}
+  .chip{border:1px solid var(--line);background:transparent;color:var(--cream-dim);border-radius:20px;padding:6px 12px;font-size:12.5px;font-family:inherit;cursor:pointer;transition:all .15s ease;}
+  .chip.active{background:var(--cream);color:var(--ink);border-color:var(--cream);font-weight:600;}
+  .hide-toggle{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--cream-dim);cursor:pointer;white-space:nowrap;}
+  .hide-toggle input{accent-color:var(--done);}
+
+  .main{flex:1;display:flex;min-height:0;}
+  #map{flex:1;min-width:0;}
+  .leaflet-tile-pane{filter:grayscale(0.35) sepia(0.18) contrast(1.05) brightness(0.98);}
+  .leaflet-container{background:#12140f;font-family:inherit;}
+
+  #list{width:260px;flex-shrink:0;overflow-y:auto;border-left:1px solid var(--line);background:var(--ink-soft);}
+  .list-item{padding:11px 14px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;align-items:flex-start;gap:9px;transition:background .12s ease;}
+  .list-item:hover{background:rgba(242,234,217,0.05);}
+  .list-item.selected{background:rgba(242,234,217,0.08);}
+  .dot{width:9px;height:9px;border-radius:50%;margin-top:5px;flex-shrink:0;}
+  .li-name{font-size:13.5px;font-weight:500;line-height:1.3;}
+  .li-meta{font-size:11px;color:var(--cream-dim);margin-top:1px;}
+  .li-check{margin-left:auto;font-size:14px;color:var(--done);flex-shrink:0;}
+
+  .pin{width:26px;height:26px;border-radius:50%;border:2.5px solid var(--pin-color);background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--cream);box-shadow:0 1px 4px rgba(0,0,0,0.4);}
+  .pin-done{background:var(--pin-color);border-color:var(--cream);color:var(--ink);font-weight:700;box-shadow:0 0 0 3px rgba(242,234,217,0.25),0 1px 4px rgba(0,0,0,0.4);}
+
+  #drawer{position:fixed;left:0;right:0;bottom:0;background:var(--ink-soft);border-top:1px solid var(--line);border-radius:16px 16px 0 0;padding:16px 18px 20px;transform:translateY(100%);transition:transform .28s ease;z-index:1000;max-height:60vh;overflow-y:auto;box-shadow:0 -8px 24px rgba(0,0,0,0.35);}
+  #drawer.open{transform:translateY(0);}
+  #drawerClose{position:absolute;top:10px;right:14px;background:none;border:none;color:var(--cream-dim);font-size:20px;cursor:pointer;line-height:1;}
+  .d-badge{display:inline-block;font-size:11px;padding:2px 9px;border-radius:20px;margin-bottom:8px;font-weight:600;}
+  .d-name{font-family:'Fraunces',serif;font-size:20px;font-weight:600;margin:0 0 4px;}
+  .d-meta{font-size:12.5px;color:var(--cream-dim);margin-bottom:10px;}
+  .d-desc{font-size:13.5px;line-height:1.55;color:#e6dfce;margin-bottom:14px;}
+  .d-check{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:500;cursor:pointer;padding:10px 12px;border:1px solid var(--line);border-radius:10px;}
+  .d-check input{width:18px;height:18px;accent-color:var(--done);}
+
+  #loading{position:fixed;inset:0;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--cream-dim);z-index:2000;}
+  .hidden{display:none !important;}
+
+  #resetBtn{background:none;border:none;color:var(--cream-dim);font-size:11px;text-decoration:underline;cursor:pointer;padding:0;margin-left:auto;}
+
+  @media (max-width: 720px){
+    #list{display:none;}
+    .controls{padding:8px 14px;}
+  }
+</style>
+</head>
+<body>
+<div id="loading">Načítám uložený postup…</div>
+<div id="app">
+  <header>
+    <h1>Vrcholy na kole</h1>
+    <p class="subtitle">České monumenty, vyhlídky a poutní místa zdolatelné na silničním kole</p>
+    <div class="progress">
+      <span id="progressText">0/0</span>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+  </header>
+  <div class="controls">
+    <div class="chips" id="categoryChips">
+      <button class="chip active" data-filter="all">Vše</button>
+      <button class="chip" data-filter="monument">Monumenty</button>
+      <button class="chip" data-filter="rozhledna">Vyhlídky</button>
+      <button class="chip" data-filter="poutni">Poutní místa</button>
+    </div>
+    <label class="hide-toggle"><input type="checkbox" id="hideDone">Skrýt odjeté</label>
+    <button id="resetBtn">Vynulovat postup</button>
+  </div>
+  <div class="main">
+    <div id="map"></div>
+    <aside id="list"></aside>
+  </div>
+</div>
+<div id="drawer">
+  <button id="drawerClose" aria-label="Zavřít">×</button>
+  <div id="drawerContent"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function(){
+  const CLIMBS = [
+    {id:'jested', name:'Ještěd', category:'monument', lat:50.7318, lng:14.9822, elev:1012, region:'Ještědsko-kozákovský hřbet',
+      desc:'Ikonická vysílačka nad Libercem, symbol Krkonoš i Jizerských hor. Klasický výjezd z Liberce přes Horní Hanychov.', defaultDone:false},
+    {id:'praded', name:'Praděd', category:'monument', lat:50.0817, lng:17.2306, elev:1491, region:'Jeseníky',
+      desc:'Nejvyšší bod Česka, asfaltka vede až k vysílači na vrcholu. Klasický přístup z Karlovy Studánky přes Červenohorské sedlo a Ovčárnu.', defaultDone:false},
+    {id:'klet', name:'Kleť', category:'monument', lat:48.8611, lng:14.2892, elev:1084, region:'Blanský les',
+      desc:'Převýšení od Českého Krumlova asi 617 m, poslední 3 km před vrcholem jsou velmi náročné. Za jasného počasí výhled až na Alpy.', defaultDone:false},
+    {id:'klinovec', name:'Klínovec', category:'monument', lat:50.3961, lng:12.9694, elev:1244, region:'Krušné hory',
+      desc:'Nejvyšší bod Krušných hor a cíl závodu Road Classics. Start obvykle z Božího Daru, nejvýše položeného města v ČR.', defaultDone:false},
+    {id:'milesovka', name:'Milešovka', category:'monument', lat:50.5537, lng:13.9331, elev:837, region:'České středohoří',
+      desc:'Královna Českého středohoří. Krátký, ale prudký výjezd skoro až k vysílači, pověstný extrémním větrem na vrcholu.', defaultDone:false},
+    {id:'radhost', name:'Radhošť', category:'monument', lat:49.5194, lng:18.2114, elev:1129, region:'Beskydy',
+      desc:'Asfaltka vede blízko k vrcholu se sousoším Cyrila a Metoděje. Start obvykle z Trojanovic nebo Pusteven.', defaultDone:false},
+    {id:'lysahora', name:'Lysá hora', category:'monument', lat:49.5386, lng:18.4453, elev:1323, region:'Beskydy',
+      desc:'Nejvyšší vrchol Beskyd. Asfaltka/lesní cesta vede jen do vrcholových partií, poslední úsek k rozhledně už je turistická stezka.', defaultDone:false},
+    {id:'zvicina', name:'Zvičina', category:'rozhledna', lat:50.4626, lng:15.7524, elev:671, region:'Podkrkonoší',
+      desc:'Oblíbený cíl s rozhlednou nad Dvorem Králové. Nenáročný výjezd, hezký výhled na Krkonoše.', defaultDone:false},
+    {id:'kozakov', name:'Kozákov', category:'rozhledna', lat:50.5883, lng:15.3011, elev:744, region:'Český ráj',
+      desc:'Vyhlídková věž s výhledem na Krkonoše i Jizerské hory, oblíbený cíl výletů z Turnova.', defaultDone:false},
+    {id:'bezdez', name:'Bezděz', category:'rozhledna', lat:50.5423, lng:14.7266, elev:604, region:'Kokořínsko',
+      desc:'Zřícenina hradu na osamělém kopci uprostřed roviny. Poslední metry k hradu pěšky, ale krásný cíl vyjížďky.', defaultDone:false},
+    {id:'blanik', name:'Velký Blaník', category:'rozhledna', lat:49.6825, lng:14.8397, elev:638, region:'Podblanicko',
+      desc:'Dřevěná rozhledna ve tvaru husitské hlásky na vrcholu bájné hory rytířů. Nenáročný výjezd od Vlašimi, u vrcholu chata s občerstvením.', defaultDone:false},
+    {id:'stepanka', name:'Štěpánka', category:'rozhledna', lat:50.7862, lng:15.1683, elev:945, region:'Jizerské hory',
+      desc:'Nejstarší rozhledna Jizerských hor na vrchu Hvězda, výhled na západní Krkonoše a údolí Kamenice. Výjezd od Bedřichova.', defaultDone:false},
+    {id:'svatobor', name:'Svatobor', category:'rozhledna', lat:49.2306, lng:13.5286, elev:845, region:'Šumavské podhůří',
+      desc:'Kamenná rozhledna s horskou chatou nad Sušicí, kruhový výhled na Šumavu. Oblíbený místní cíl.', defaultDone:false},
+    {id:'hostyn', name:'Svatý Hostýn', category:'poutni', lat:49.3467, lng:17.6122, elev:735, region:'Hostýnské vrchy',
+      desc:'Největší poutní místo Moravy — barokní bazilika, Jurkovičova křížová cesta a rozhledna na vrcholu. Výjezd od Bystřice pod Hostýnem.', defaultDone:false},
+    {id:'kremesnik', name:'Křemešník', category:'poutni', lat:49.3358, lng:15.2444, elev:765, region:'Českomoravská vrchovina',
+      desc:'Poutní kostel Nejsvětější Trojice a rozhledna Pípalka nedaleko Pelhřimova, k vrcholu vede i lyžařský vlek. Klidná silnička nahoru.', defaultDone:false},
+    {id:'svatahora', name:'Svatá Hora', category:'poutni', lat:49.6886, lng:13.9968, elev:586, region:'u Příbrami',
+      desc:'Jedno z nejvýznamnějších barokních poutních míst ve střední Evropě, na zalesněném kopci hned nad Příbramí. Krátký výjezd z centra města.', defaultDone:false},
+    {id:'horamatkybozi', name:'Hora Matky Boží', category:'poutni', lat:50.0765, lng:16.7375, elev:760, region:'Orlické hory (Králíky)',
+      desc:'Klášter Hedeč s poutním kostelem nad Králíky, k němuž se dá pohodlně vyjet po silnici. Kousek odtud i rozhledna Val.', defaultDone:false},
+  ];
+
+  const COLORS = {monument:'#a2402a', rozhledna:'#3d7c86', poutni:'#a3822f'};
+  const CATEGORY_LABEL = {monument:'Monument', rozhledna:'Rozhledový kopec', poutni:'Poutní místo'};
+
+  let status = {};
+  let currentFilter = 'all';
+  let hideDone = false;
+  let selectedId = null;
+  const markers = {};
+  let map;
+
+  function catFilterMatch(c){
+    return currentFilter === 'all' || c.category === currentFilter;
+  }
+
+  function visibleClimbs(){
+    return CLIMBS.filter(c => catFilterMatch(c) && !(hideDone && status[c.id]));
+  }
+
+  function makeIcon(climb){
+    const done = !!status[climb.id];
+    const color = COLORS[climb.category];
+    const size = done ? 30 : 24;
+    return L.divIcon({
+      className:'',
+      html:`<div class="pin ${done?'pin-done':''}" style="--pin-color:${color}">${done?'✓':''}</div>`,
+      iconSize:[size,size],
+      iconAnchor:[size/2,size/2]
+    });
+  }
+
+  function updateProgress(){
+    const total = CLIMBS.length;
+    const done = CLIMBS.filter(c => status[c.id]).length;
+    document.getElementById('progressText').textContent = done + '/' + total + ' odjeto';
+    document.getElementById('progressFill').style.width = (total ? (done/total*100) : 0) + '%';
+  }
+
+  function renderMarkersAndList(){
+    Object.values(markers).forEach(m => map.removeLayer(m));
+    Object.keys(markers).forEach(k => delete markers[k]);
+
+    const listEl = document.getElementById('list');
+    listEl.innerHTML = '';
+
+    visibleClimbs().forEach(climb => {
+      const marker = L.marker([climb.lat, climb.lng], {icon: makeIcon(climb)});
+      marker.on('click', () => openDrawer(climb.id));
+      marker.addTo(map);
+      markers[climb.id] = marker;
+
+      const item = document.createElement('div');
+      item.className = 'list-item' + (selectedId === climb.id ? ' selected' : '');
+      item.innerHTML = `
+        <span class="dot" style="background:${COLORS[climb.category]}"></span>
+        <div>
+          <div class="li-name">${climb.name}</div>
+          <div class="li-meta">${climb.elev} m · ${climb.region}</div>
+        </div>
+        ${status[climb.id] ? '<span class="li-check">✓</span>' : ''}
+      `;
+      item.addEventListener('click', () => {
+        openDrawer(climb.id);
+        map.flyTo([climb.lat, climb.lng], 10, {duration:0.6});
+      });
+      listEl.appendChild(item);
+    });
+
+    updateProgress();
+  }
+
+  function openDrawer(id){
+    selectedId = id;
+    const climb = CLIMBS.find(c => c.id === id);
+    const done = !!status[id];
+    const drawer = document.getElementById('drawer');
+    document.getElementById('drawerContent').innerHTML = `
+      <span class="d-badge" style="background:${COLORS[climb.category]}22;color:${COLORS[climb.category]};border:1px solid ${COLORS[climb.category]}55">${CATEGORY_LABEL[climb.category]}</span>
+      <h2 class="d-name">${climb.name}</h2>
+      <div class="d-meta">${climb.elev} m n. m. · ${climb.region}</div>
+      <p class="d-desc">${climb.desc}</p>
+      <label class="d-check">
+        <input type="checkbox" id="doneCheck" ${done ? 'checked':''}>
+        Odjeto
+      </label>
+    `;
+    drawer.classList.add('open');
+    document.getElementById('doneCheck').addEventListener('change', (e) => {
+      toggleDone(id, e.target.checked);
+    });
+    // re-render list to reflect selection highlight
+    renderMarkersAndList();
+  }
+
+  function closeDrawer(){
+    document.getElementById('drawer').classList.remove('open');
+    selectedId = null;
+  }
+
+  function toggleDone(id, value){
+    status[id] = value;
+    renderMarkersAndList();
+    try{
+      localStorage.setItem('climb-status', JSON.stringify(status));
+    }catch(err){
+      console.error('Nepodařilo se uložit postup do prohlížeče:', err);
+    }
+  }
+
+  function resetProgress(){
+    if(!confirm('Opravdu vynulovat celý postup?')) return;
+    status = {};
+    try{
+      localStorage.setItem('climb-status', JSON.stringify(status));
+    }catch(err){
+      console.error('Nepodařilo se uložit postup do prohlížeče:', err);
+    }
+    closeDrawer();
+    renderMarkersAndList();
+  }
+
+  function loadStatus(){
+    let saved = {};
+    try{
+      const raw = localStorage.getItem('climb-status');
+      if(raw) saved = JSON.parse(raw);
+    }catch(err){
+      // localStorage nedostupné (např. soukromé okno) — jede se jen v paměti
+      saved = {};
+    }
+    const defaults = {};
+    CLIMBS.forEach(c => { defaults[c.id] = !!c.defaultDone; });
+    status = Object.assign({}, defaults, saved);
+  }
+
+  function initMap(){
+    map = L.map('map', {zoomControl:true}).setView([49.9, 15.5], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 17
+    }).addTo(map);
+  }
+
+  function initControls(){
+    document.getElementById('categoryChips').addEventListener('click', (e) => {
+      const btn = e.target.closest('.chip');
+      if(!btn) return;
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      currentFilter = btn.dataset.filter;
+      renderMarkersAndList();
+    });
+    document.getElementById('hideDone').addEventListener('change', (e) => {
+      hideDone = e.target.checked;
+      renderMarkersAndList();
+    });
+    document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+    document.getElementById('resetBtn').addEventListener('click', resetProgress);
+  }
+
+  function init(){
+    initMap();
+    initControls();
+    loadStatus();
+    renderMarkersAndList();
+    document.getElementById('loading').classList.add('hidden');
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
