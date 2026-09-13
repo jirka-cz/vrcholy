@@ -1,0 +1,2 @@
+# map
+monumenty, kopce, vrcholy
