@@ -68,6 +68,19 @@
   .hidden{display:none !important;}
 
   #resetBtn{background:none;border:none;color:var(--cream-dim);font-size:11px;text-decoration:underline;cursor:pointer;padding:0;margin-left:auto;}
+  #addPlaceBtn{background:none;border:1px solid var(--line);color:var(--cream);border-radius:20px;padding:6px 12px;font-size:12.5px;font-family:inherit;cursor:pointer;}
+
+  .add-panel-title{font-family:'Fraunces',serif;font-size:19px;font-weight:600;margin:0 0 14px;}
+  .field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;}
+  .field label{font-size:12px;color:var(--cream-dim);}
+  .field input,.field select,.field textarea{background:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 10px;color:var(--cream);font-family:inherit;font-size:13.5px;}
+  .field textarea{resize:vertical;min-height:56px;}
+  .field-hint{font-size:11px;color:var(--cream-dim);margin-top:2px;line-height:1.45;}
+  .field-row{display:flex;gap:10px;}
+  .field-row .field{flex:1;}
+  .add-error{color:var(--monument);font-size:12.5px;margin-bottom:10px;min-height:16px;}
+  .btn-primary{width:100%;background:var(--done);color:var(--ink);border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;}
+  .delete-link{background:none;border:none;color:var(--monument);font-size:12.5px;text-decoration:underline;cursor:pointer;padding:0;margin-top:4px;}
 
   @media (max-width: 720px){
     #list{display:none;}
@@ -94,6 +107,7 @@
       <button class="chip" data-filter="poutni">Poutní místa</button>
     </div>
     <label class="hide-toggle"><input type="checkbox" id="hideDone">Skrýt odjeté</label>
+    <button id="addPlaceBtn">+ Přidat místo</button>
     <button id="resetBtn">Vynulovat postup</button>
   </div>
   <div class="main">
@@ -104,6 +118,45 @@
 <div id="drawer">
   <button id="drawerClose" aria-label="Zavřít">×</button>
   <div id="drawerContent"></div>
+</div>
+<div id="addPanel" class="drawer">
+  <button id="addPanelClose" aria-label="Zavřít">×</button>
+  <h2 class="add-panel-title">Přidat vlastní místo</h2>
+  <form id="addForm">
+    <div class="field">
+      <label for="addName">Název</label>
+      <input type="text" id="addName" required placeholder="např. Sněžka">
+    </div>
+    <div class="field">
+      <label for="addCategory">Kategorie</label>
+      <select id="addCategory">
+        <option value="monument">Monument</option>
+        <option value="rozhledna">Rozhledový kopec</option>
+        <option value="poutni">Poutní místo</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="addCoords">Souřadnice</label>
+      <input type="text" id="addCoords" required placeholder="50.7318, 14.9822">
+      <div class="field-hint">Z mapy.com: klikni pravým tlačítkem na místo (na mobilu podrž prst) → v kartě bodu se zobrazí GPS souřadnice ve tvaru „50.6795675N, 14.8752756E" → stačí zkopírovat sem beze změny. Fungují i čisté desetinné stupně („50.6796, 14.8753") nebo stupně/minuty/vteřiny („50°40'46″N, 14°52'31″E").</div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="addElev">Nadmořská výška (m)</label>
+        <input type="number" id="addElev" placeholder="nepovinné">
+      </div>
+      <div class="field">
+        <label for="addRegion">Oblast</label>
+        <input type="text" id="addRegion" placeholder="nepovinné">
+      </div>
+    </div>
+    <div class="field">
+      <label for="addDesc">Popis</label>
+      <textarea id="addDesc" placeholder="nepovinné"></textarea>
+    </div>
+    <div class="add-error" id="addError"></div>
+    <button type="submit" class="btn-primary">Přidat na mapu</button>
+  </form>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -150,18 +203,74 @@
   const CATEGORY_LABEL = {monument:'Monument', rozhledna:'Rozhledový kopec', poutni:'Poutní místo'};
 
   let status = {};
+  let customClimbs = [];
   let currentFilter = 'all';
   let hideDone = false;
   let selectedId = null;
   const markers = {};
   let map;
 
+  function allClimbs(){
+    return CLIMBS.concat(customClimbs);
+  }
+
   function catFilterMatch(c){
     return currentFilter === 'all' || c.category === currentFilter;
   }
 
   function visibleClimbs(){
-    return CLIMBS.filter(c => catFilterMatch(c) && !(hideDone && status[c.id]));
+    return allClimbs().filter(c => catFilterMatch(c) && !(hideDone && status[c.id]));
+  }
+
+  function metaLine(climb){
+    const parts = [];
+    if(climb.elev !== null && climb.elev !== undefined && climb.elev !== '' && !isNaN(climb.elev)){
+      parts.push(climb.elev + ' m n. m.');
+    }
+    if(climb.region) parts.push(climb.region);
+    return parts.join(' · ');
+  }
+
+  // Accepts "50.7318, 14.9822", "50.7318N, 14.9822E" or "50°43'54″N, 14°58'56″E"
+  function parseCoords(raw){
+    if(!raw) return null;
+    const str = raw.trim();
+    if(!str) return null;
+
+    if(str.indexOf('°') !== -1){
+      const re = /(-?\d{1,3}(?:\.\d+)?)\s*°\s*(?:(\d{1,2}(?:\.\d+)?)\s*['′]\s*(?:(\d{1,2}(?:\.\d+)?)\s*["″]\s*)?)?\s*([NSEWnsew])?/g;
+      const parts = [];
+      let m;
+      while((m = re.exec(str)) !== null && parts.length < 2){
+        if(m[1] === undefined) continue;
+        const deg = parseFloat(m[1]);
+        const min = m[2] ? parseFloat(m[2]) : 0;
+        const sec = m[3] ? parseFloat(m[3]) : 0;
+        let val = Math.abs(deg) + min/60 + sec/3600;
+        const dir = m[4] ? m[4].toUpperCase() : null;
+        if(dir === 'S' || dir === 'W' || deg < 0) val = -val;
+        parts.push(val);
+      }
+      if(parts.length === 2 && isFinite(parts[0]) && isFinite(parts[1])) return {lat:parts[0], lng:parts[1]};
+      return null;
+    }
+
+    const tokenRe = /([NSEWnsew])?\s*(-?\d+(?:\.\d+)?)\s*([NSEWnsew])?/g;
+    const found = [];
+    let m2;
+    while((m2 = tokenRe.exec(str)) !== null && found.length < 2){
+      const num = parseFloat(m2[2]);
+      if(isNaN(num)) continue;
+      const dir = (m2[1] || m2[3] || '').toUpperCase();
+      let val = num;
+      if(dir === 'S' || dir === 'W') val = -Math.abs(num);
+      found.push(val);
+    }
+    if(found.length !== 2 || !isFinite(found[0]) || !isFinite(found[1])) return null;
+
+    let [lat, lng] = found;
+    if(Math.abs(lat) > 90 && Math.abs(lng) <= 90){ [lat, lng] = [lng, lat]; }
+    return {lat, lng};
   }
 
   function makeIcon(climb){
@@ -177,8 +286,8 @@
   }
 
   function updateProgress(){
-    const total = CLIMBS.length;
-    const done = CLIMBS.filter(c => status[c.id]).length;
+    const total = allClimbs().length;
+    const done = allClimbs().filter(c => status[c.id]).length;
     document.getElementById('progressText').textContent = done + '/' + total + ' odjeto';
     document.getElementById('progressFill').style.width = (total ? (done/total*100) : 0) + '%';
   }
@@ -202,7 +311,7 @@
         <span class="dot" style="background:${COLORS[climb.category]}"></span>
         <div>
           <div class="li-name">${climb.name}</div>
-          <div class="li-meta">${climb.elev} m · ${climb.region}</div>
+          <div class="li-meta">${metaLine(climb)}</div>
         </div>
         ${status[climb.id] ? '<span class="li-check">✓</span>' : ''}
       `;
@@ -217,24 +326,29 @@
   }
 
   function openDrawer(id){
+    closeAddPanel();
     selectedId = id;
-    const climb = CLIMBS.find(c => c.id === id);
+    const climb = allClimbs().find(c => c.id === id);
     const done = !!status[id];
     const drawer = document.getElementById('drawer');
     document.getElementById('drawerContent').innerHTML = `
       <span class="d-badge" style="background:${COLORS[climb.category]}22;color:${COLORS[climb.category]};border:1px solid ${COLORS[climb.category]}55">${CATEGORY_LABEL[climb.category]}</span>
       <h2 class="d-name">${climb.name}</h2>
-      <div class="d-meta">${climb.elev} m n. m. · ${climb.region}</div>
-      <p class="d-desc">${climb.desc}</p>
+      <div class="d-meta">${metaLine(climb)}</div>
+      ${climb.desc ? `<p class="d-desc">${climb.desc}</p>` : ''}
       <label class="d-check">
         <input type="checkbox" id="doneCheck" ${done ? 'checked':''}>
         Odjeto
       </label>
+      ${climb.custom ? '<button id="deleteCustomBtn" class="delete-link">Smazat toto místo</button>' : ''}
     `;
     drawer.classList.add('open');
     document.getElementById('doneCheck').addEventListener('change', (e) => {
       toggleDone(id, e.target.checked);
     });
+    if(climb.custom){
+      document.getElementById('deleteCustomBtn').addEventListener('click', () => deleteCustomClimb(id));
+    }
     // re-render list to reflect selection highlight
     renderMarkersAndList();
   }
@@ -244,9 +358,7 @@
     selectedId = null;
   }
 
-  function toggleDone(id, value){
-    status[id] = value;
-    renderMarkersAndList();
+  function saveStatus(){
     try{
       localStorage.setItem('climb-status', JSON.stringify(status));
     }catch(err){
@@ -254,14 +366,16 @@
     }
   }
 
+  function toggleDone(id, value){
+    status[id] = value;
+    renderMarkersAndList();
+    saveStatus();
+  }
+
   function resetProgress(){
     if(!confirm('Opravdu vynulovat celý postup?')) return;
     status = {};
-    try{
-      localStorage.setItem('climb-status', JSON.stringify(status));
-    }catch(err){
-      console.error('Nepodařilo se uložit postup do prohlížeče:', err);
-    }
+    saveStatus();
     closeDrawer();
     renderMarkersAndList();
   }
@@ -276,8 +390,87 @@
       saved = {};
     }
     const defaults = {};
-    CLIMBS.forEach(c => { defaults[c.id] = !!c.defaultDone; });
+    allClimbs().forEach(c => { defaults[c.id] = !!c.defaultDone; });
     status = Object.assign({}, defaults, saved);
+  }
+
+  function saveCustom(){
+    try{
+      localStorage.setItem('custom-climbs', JSON.stringify(customClimbs));
+    }catch(err){
+      console.error('Nepodařilo se uložit vlastní místa do prohlížeče:', err);
+    }
+  }
+
+  function loadCustom(){
+    try{
+      const raw = localStorage.getItem('custom-climbs');
+      customClimbs = raw ? JSON.parse(raw) : [];
+    }catch(err){
+      customClimbs = [];
+    }
+  }
+
+  function openAddPanel(){
+    closeDrawer();
+    document.getElementById('addError').textContent = '';
+    document.getElementById('addPanel').classList.add('open');
+  }
+
+  function closeAddPanel(){
+    document.getElementById('addPanel').classList.remove('open');
+  }
+
+  function handleAddSubmit(e){
+    e.preventDefault();
+    const name = document.getElementById('addName').value.trim();
+    const category = document.getElementById('addCategory').value;
+    const coordsRaw = document.getElementById('addCoords').value;
+    const elevRaw = document.getElementById('addElev').value;
+    const region = document.getElementById('addRegion').value.trim();
+    const desc = document.getElementById('addDesc').value.trim();
+    const errorEl = document.getElementById('addError');
+    errorEl.textContent = '';
+
+    if(!name){
+      errorEl.textContent = 'Zadej název místa.';
+      return;
+    }
+    const coords = parseCoords(coordsRaw);
+    if(!coords || Math.abs(coords.lat) > 90 || Math.abs(coords.lng) > 180){
+      errorEl.textContent = 'Nepodařilo se přečíst souřadnice — zkus formát 50.7318, 14.9822.';
+      return;
+    }
+
+    const climb = {
+      id: 'custom-' + Date.now(),
+      name, category,
+      lat: coords.lat, lng: coords.lng,
+      elev: elevRaw ? parseInt(elevRaw, 10) : null,
+      region: region || '',
+      desc: desc || '',
+      defaultDone: false,
+      custom: true
+    };
+    customClimbs.push(climb);
+    status[climb.id] = false;
+    saveCustom();
+    saveStatus();
+    closeAddPanel();
+    e.target.reset();
+    renderMarkersAndList();
+    map.flyTo([climb.lat, climb.lng], 11, {duration:0.6});
+    openDrawer(climb.id);
+  }
+
+  function deleteCustomClimb(id){
+    if(!confirm('Smazat toto vlastní místo?')) return;
+    customClimbs = customClimbs.filter(c => c.id !== id);
+    delete status[id];
+    saveCustom();
+    saveStatus();
+    closeDrawer();
+    renderMarkersAndList();
   }
 
   function initMap(){
@@ -303,11 +496,15 @@
     });
     document.getElementById('drawerClose').addEventListener('click', closeDrawer);
     document.getElementById('resetBtn').addEventListener('click', resetProgress);
+    document.getElementById('addPlaceBtn').addEventListener('click', openAddPanel);
+    document.getElementById('addPanelClose').addEventListener('click', closeAddPanel);
+    document.getElementById('addForm').addEventListener('submit', handleAddSubmit);
   }
 
   function init(){
     initMap();
     initControls();
+    loadCustom();
     loadStatus();
     renderMarkersAndList();
     document.getElementById('loading').classList.add('hidden');
