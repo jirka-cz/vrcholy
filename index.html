@@ -76,6 +76,10 @@
   .field input,.field select,.field textarea{background:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 10px;color:var(--cream);font-family:inherit;font-size:13.5px;}
   .field textarea{resize:vertical;min-height:56px;}
   .field-hint{font-size:11px;color:var(--cream-dim);margin-top:2px;line-height:1.45;}
+  .coords-row{display:flex;gap:8px;}
+  .coords-row input{flex:1;}
+  #lookupBtn{flex-shrink:0;background:none;border:1px solid var(--line);color:var(--cream);border-radius:8px;padding:0 12px;font-size:12.5px;font-family:inherit;cursor:pointer;white-space:nowrap;}
+  .lookup-status{font-size:11px;color:var(--cream-dim);margin-top:4px;min-height:14px;}
   .field-row{display:flex;gap:10px;}
   .field-row .field{flex:1;}
   .add-error{color:var(--monument);font-size:12.5px;margin-bottom:10px;min-height:16px;}
@@ -137,8 +141,12 @@
     </div>
     <div class="field">
       <label for="addCoords">Souřadnice</label>
-      <input type="text" id="addCoords" required placeholder="50.7318, 14.9822">
+      <div class="coords-row">
+        <input type="text" id="addCoords" required placeholder="50.7318, 14.9822">
+        <button type="button" id="lookupBtn">Doplnit výšku a oblast</button>
+      </div>
       <div class="field-hint">Z mapy.com: klikni pravým tlačítkem na místo (na mobilu podrž prst) → v kartě bodu se zobrazí GPS souřadnice ve tvaru „50.6795675N, 14.8752756E" → stačí zkopírovat sem beze změny. Fungují i čisté desetinné stupně („50.6796, 14.8753") nebo stupně/minuty/vteřiny („50°40'46″N, 14°52'31″E").</div>
+      <div class="lookup-status" id="lookupStatus"></div>
     </div>
     <div class="field-row">
       <div class="field">
@@ -411,6 +419,56 @@
     }
   }
 
+  async function fetchElevation(lat, lng){
+    const url = `https://api.opentopodata.org/v1/eudem25m?locations=${lat},${lng}`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('elevation api error');
+    const data = await res.json();
+    const val = data && data.results && data.results[0] && data.results[0].elevation;
+    if(val === null || val === undefined) throw new Error('no elevation data');
+    return Math.round(val);
+  }
+
+  async function fetchRegion(lat, lng){
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=12&accept-language=cs`;
+    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error('nominatim error');
+    const data = await res.json();
+    const addr = data.address || {};
+    const place = addr.village || addr.town || addr.municipality || addr.city || '';
+    if(place) return 'u ' + place;
+    if(addr.county) return addr.county;
+    return '';
+  }
+
+  async function handleLookup(){
+    const statusEl = document.getElementById('lookupStatus');
+    const coords = parseCoords(document.getElementById('addCoords').value);
+    if(!coords){
+      statusEl.textContent = 'Nejdřív zadej platné souřadnice.';
+      return;
+    }
+    statusEl.textContent = 'Zjišťuji výšku a oblast…';
+    const elevInput = document.getElementById('addElev');
+    const regionInput = document.getElementById('addRegion');
+    const results = await Promise.allSettled([
+      fetchElevation(coords.lat, coords.lng),
+      fetchRegion(coords.lat, coords.lng)
+    ]);
+    let ok = 0;
+    if(results[0].status === 'fulfilled'){
+      elevInput.value = results[0].value;
+      ok++;
+    }
+    if(results[1].status === 'fulfilled' && results[1].value){
+      regionInput.value = results[1].value;
+      ok++;
+    }
+    statusEl.textContent = ok > 0
+      ? 'Doplněno automaticky — klidně uprav, pokud to nesedí.'
+      : 'Nepodařilo se načíst (chce to internet a mimo Claude náhled) — doplň prosím ručně.';
+  }
+
   function openAddPanel(){
     closeDrawer();
     document.getElementById('addError').textContent = '';
@@ -499,6 +557,7 @@
     document.getElementById('addPlaceBtn').addEventListener('click', openAddPanel);
     document.getElementById('addPanelClose').addEventListener('click', closeAddPanel);
     document.getElementById('addForm').addEventListener('submit', handleAddSubmit);
+    document.getElementById('lookupBtn').addEventListener('click', handleLookup);
   }
 
   function init(){
